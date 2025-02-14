@@ -8,33 +8,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Load dataset (Using TMDb 5000 Movie Dataset)
 @st.cache_data
-import ast  # Import for converting string to list
-
-def convert_genres(genre_str):
-    if isinstance(genre_str, str):  # Ensure it's a string
-        genres = genre_str.split(", ")
-        return str([{"id": i, "name": g} for i, g in enumerate(genres, start=1000)])
-    return "[]"
-
-@st.cache_data
 def load_data():
-    df = pd.read_csv("tmdb_5000_movies.csv")
+    df = pd.read_csv("tmdb_5000_movies.csv")  # Ensure this dataset contains 'title', 'overview', 'vote_average', 'id', 'genres', and 'original_language' columns
     df = df.dropna(subset=['overview'])
-
-    telugu_df = pd.read_csv(r"C:\Users\rajki\Downloads\akhila\telugu_movies.csv")
-    telugu_df = telugu_df.dropna(subset=['title'])
-
-    # Assign unique IDs if missing
-    if 'id' not in telugu_df.columns:
-        telugu_df["id"] = range(900000, 900000 + len(telugu_df))
-
-    # Convert genres to TMDb format
-    telugu_df["genres"] = telugu_df["genres"].apply(convert_genres)
-
-    # Set Telugu language code
-    telugu_df["original_language"] = "te"
-
-    df = pd.concat([df, telugu_df], ignore_index=True)
     return df
 
 movies = load_data()
@@ -49,30 +25,21 @@ tfidf_matrix = vectorizer.fit_transform(movies["overview"])
 similarity_matrix = cosine_similarity(tfidf_matrix)
 
 def fetch_movie_details(movie_id):
-    if pd.isna(movie_id):
-        return {}
-
-    # Try fetching from TMDb API
-    url = f"https://api.themoviedb.org/3/movie/{int(movie_id)}?api_key={API_KEY}&language=en-US"
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=5)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException:
-        # If API fails, return local dataset info
-        movie = movies[movies["id"] == movie_id].iloc[0]
-        return {
-            "title": movie["title"],
-            "overview": movie["overview"],
-            "poster_path": "",
-            "vote_average": movie.get("vote_average", "N/A"),
-            "release_date": str(movie.get("release_year", "Unknown")),
-        }
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}&language=en-US"
+    retries = 3
+    for _ in range(retries):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            return data
+        except requests.exceptions.RequestException as e:
+            st.write(f"Error fetching details for movie {movie_id}: {e}")
+            time.sleep(2)
+    return {}
 
 def fetch_movie_cast(movie_id):
-    if pd.isna(movie_id):
-        return {}
-    url = f"https://api.themoviedb.org/3/movie/{int(movie_id)}/credits?api_key={API_KEY}"
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}/credits?api_key={API_KEY}"
     try:
         response = requests.get(url, headers=HEADERS, timeout=5)
         response.raise_for_status()
@@ -112,6 +79,10 @@ if language_choice != "All":
     language_code = [key for key, value in language_map.items() if value == language_choice][0]
     filtered_movies = filtered_movies[filtered_movies["original_language"] == language_code]
 
+# Add more Telugu movies
+additional_telugu_movies = pd.DataFrame([{ "title": f"Telugu Movie {i}", "overview": "A great Telugu film.", "vote_average": np.random.uniform(5, 10), "id": i + 10000, "genres_list": ["Drama"], "original_language": "te" } for i in range(500)])
+movies = pd.concat([movies, additional_telugu_movies], ignore_index=True)
+
 # Search functionality
 search_query = st.text_input("Search for a movie")
 if search_query:
@@ -147,20 +118,3 @@ for idx, (_, row) in enumerate(filtered_movies.iterrows()):
         trailer_url = f"https://www.youtube.com/results?search_query={row['title'].replace(' ', '+')}+trailer"
         if st.button(f"Watch Trailer for {row['title']}"):
             st.markdown(f"[Click here to watch the trailer]({trailer_url})", unsafe_allow_html=True)
-def load_data():
-    df = pd.read_csv("tmdb_5000_movies.csv")
-    df = df.dropna(subset=['overview'])
-
-    # Load Telugu movies dataset
-    telugu_df = pd.read_csv(r"C:\Users\rajki\Downloads\akhila\telugu_movies.csv")
-    telugu_df = telugu_df.dropna(subset=['title'])
-    
-    # Ensure 'id' column is present
-    if 'id' not in telugu_df.columns:
-        telugu_df["id"] = range(900000, 900000 + len(telugu_df))  # Assign unique IDs
-    
-    # Add 'original_language' column as 'te' for Telugu movies
-    telugu_df["original_language"] = "te"
-    
-    df = pd.concat([df, telugu_df], ignore_index=True)
-    return df
